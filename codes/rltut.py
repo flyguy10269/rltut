@@ -114,7 +114,7 @@ class Rect:
 class Object:
 	#this is a generic object: the player, a monster, an item, the stairs...
 	#it's always represented by a character on screen.
-	def __init__(self, x, y, char, name, color, blocks=False, always_visible=False, fighter=None, ai=None, item=None):
+	def __init__(self, x, y, char, name, color, blocks=False, always_visible=False, fighter=None, ai=None, item=None, equipment=None):
 		self.x = x
 		self.y = y
 		self.char = char
@@ -122,13 +122,21 @@ class Object:
 		self.name = name
 		self.blocks = blocks
 		self.always_visible = always_visible
-		self.fighter = fighter
 		self.item = item
 		if self.item: #let the item component know who owns it
 			self.item.owner = self
-			
+		
+		self.fighter = fighter
 		if self.fighter: #let the fighter component know who owns it
 			self.fighter.owner = self
+			
+		self.equipment = equipment
+		if self.equipment: #let the equipment component know who owns it
+			self.equipment.owner = self
+			
+			#item component so equipment component works properly
+			self.item = Item()
+			self.item.owner = self
 			
 		self.ai = ai
 		if self.ai: #let the AI component know who owns it
@@ -183,12 +191,27 @@ class Object:
 class Fighter:
 	#combat-related properties and methods (monster, player, NPC)
 	def __init__(self, hp, defense, power, xp, death_function=None):
-		self.max_hp = hp
+		self.base_max_hp = hp
 		self.hp = hp
-		self.defense = defense
-		self.power = power
+		self.base_defense = defense
+		self.base_power = power
 		self.xp = xp
 		self.death_function = death_function
+		
+	@property
+	def power(self): #return actual defense, by summing up the bonuses from all equipped items
+		bonus = sum(equipment.power_bonus for equipment in get_all_equipped(self.owner))
+		return self.base_power + bonus
+		
+	@property
+	def defense(self):
+		bonus = sum(equipment.defense_bonus for equipment in get_all_equipped(self.owner))
+		return self.base_defense + bonus
+		
+	@property
+	def max_hp(self):
+		bonus = sum(equipment.max_hp_bonus for equipment in get_all_equipped(self.owner))
+		return self.base_max_hp + bonus
 		
 	def take_damage(self, damage):
 		#apply damage if possible
@@ -227,6 +250,10 @@ class Item:
 		self.use_function = use_function
 		
 	def use(self):
+		#special case: if the object has equipment component, the action equips/dequips
+		if self.owner.equipment:
+			self.owner.equipment.toggle_equip()
+			return
 		#just call the "use_function" if it is defined
 		if self.use_function is None:
 			message('The ' + self.owner.name + ' cannot be used.')
@@ -244,14 +271,54 @@ class Item:
 			objects.remove(self.owner)
 			message('You picked up a ' + self.owner.name + '!', libtcod.green)
 			
+		#special case: auto equip if slot is unused
+		equipment = self.owner.equipment
+		if equipment and (get_equipped_in_slot(equipment.slot) is None):
+			equipment.equip()
+			
 	def drop(self):
 		#add to the map and remove from player's inventory. place at players feet
 		objects.append(self.owner)
+		#special case: if the object has the equipment component remove it before dropping
+		if self.owner.equipment:
+			self.owner.equipment.dequip()
+			
 		inventory.remove(self.owner)
 		self.owner.x = player.x
 		self.owner.y = player.y
 		message('You dropped a ' + self.owner.name + '.', libtcod.yellow)
+
+class Equipment:
+	#an object that can be equipped, yielding bonuses. automatically adds the Item component.
+	def __init__(self, slot, power_bonus=0, defense_bonus=0, max_hp_bonus=0):
+		self.slot = slot
+		self.is_equipped = False
+		self.power_bonus = power_bonus
+		self.defense_bonus = defense_bonus
+		self.max_hp_bonus = max_hp_bonus
+		
+	def toggle_equip(self): #toggle equip/dequip status
+		if self.is_equipped:
+			self.dequip()
+		else:
+			self.equip()
 			
+	def equip(self):
+		#if the slot is already being used, remove whatever is there first
+		old_equipment = get_equipped_in_slot(self.slot)
+		if old_equipment is not None:
+			old_equipment.dequip()
+			
+		#equip object and show a message about it
+		self.is_equipped = True
+		message('Equipped ' + self.owner.name + ' on ' + self.slot + '.', libtcod.light_green)
+				
+	def dequip(self):
+		#dequip object and show message about it
+		if not self.is_equipped: return
+		self.is_equipped = False
+		message('Removed ' + self.owner.name + ' from ' + self.slot + '.', libtcod.light_yellow)
+		
 def menu(header, options, width):
 	if len(options) > 26: raise ValueError('Cannot have a menu with more than 26 options.')
 	
@@ -301,7 +368,13 @@ def inventory_menu(header):
 	if len(inventory) == 0:
 		options = ['Inventory is empty.']
 	else:
-		options = [item.name for item in inventory]
+		options = []
+		for item in inventory:
+			text = item.name
+			#show additional information, in case its equipped
+			if item.equipment and item.equipment.is_equipped:
+				text = text + ' (on ' + item.equipment.slot + ')'
+			options.append(text)
 		
 	index = menu(header, options, INVENTORY_WIDTH)
 	
@@ -389,18 +462,35 @@ def check_level_up():
 		choice = None
 		while choice == None: #keep asking untill a choice is made
 			choice = menu('Level up! Choose a stat to raise: \n',
-				['Constitution (+20 HP, from ' + str(player.fighter.max_hp) + ')',
-				'Strength (+1 attack, from ' + str(player.fighter.power) + ')',
-				'Defense (+1 defense, from ' + str(player.fighter.defense) + ')'], LEVEL_SCREEN_WIDTH)
+				['Constitution (+20 HP, from ' + str(player.fighter.base_max_hp) + ')',
+				'Strength (+1 attack, from ' + str(player.fighter.base_power) + ')',
+				'Defense (+1 defense, from ' + str(player.fighter.base_defense) + ')'], LEVEL_SCREEN_WIDTH)
 				
 		if choice == 0:
-			player.fighter.max_hp += 20
+			player.fighter.base_max_hp += 20
 			player.fighter.hp += 20
 		elif choice == 1:
-			player.fighter.power += 1
+			player.fighter.base_power += 1
 		elif choice == 2:
-			player.fighter.defense += 1
+			player.fighter.base_defense += 1
+
+def get_equipped_in_slot(slot): #returns the equipment in a slot, or None if it's empty
+	for obj in inventory:
+		if obj.equipment and obj.equipment.slot == slot and obj.equipment.is_equipped:
+			return obj.equipment
+	return None
+
+def get_all_equipped(obj): #returns a list of equipped items
+	if obj == player:
+		equipped_list = []
+		for item in inventory:
+			if item.equipment and item.equipment.is_equipped:
+				equipped_list.append(item.equipment)
 				
+		return equipped_list
+	else:
+		return [] #other objects have no equipments
+		
 def cast_heal():
 	#heal the player
 	if player.fighter.hp == player.fighter.max_hp:
@@ -529,8 +619,8 @@ def make_map():
 			######################################################################
 			#OPTIONAL: print "room number" to see how the map drawing worked
 			#we may have more than ten rooms, so print with letters
-			room_no = Object(new_x, new_y, chr(65 + num_rooms), 'room number', libtcod.white, always_visible=True)
-			objects.insert(0, room_no) #draw early, so monsters are drawn on top
+			#room_no = Object(new_x, new_y, chr(65 + num_rooms), 'room number', libtcod.white, always_visible=True)
+			#objects.insert(0, room_no) #draw early, so monsters are drawn on top
 			#######################################################################
 			
 			if num_rooms == 0:
@@ -603,7 +693,7 @@ def place_objects(room):
 	monster_chances['gnome'] = 80 #orc always shows up, even if all other monsters have 0 chance
 	monster_chances['kobold'] = 30
 	monster_chances['troll'] = from_dungeon_level([[15,3], [20,5], [35,7]])
-	monster_chances['orc'] = from_dungeon_level([[30,2], [40,4], [50,6]])
+	monster_chances['orc'] = from_dungeon_level([[25,2], [40,4], [50,6]])
 		
 	#choose random number of monsters
 	num_monsters = libtcod.random_get_int(0,0, max_monsters)
@@ -658,6 +748,9 @@ def place_objects(room):
 	item_chances['scroll of lightning'] = from_dungeon_level([[25,4]])
 	item_chances['scroll of fireball'] = from_dungeon_level([[25,5]])
 	item_chances['scroll of confusion'] = from_dungeon_level([[10,2]])
+	#equipment!!
+	item_chances['sword'] = from_dungeon_level([[5,1],[10,3],[15,5]])
+	item_chances['shield'] =10
 	
 	num_items = libtcod.random_get_int(0, 0, max_items)
 	
@@ -687,8 +780,18 @@ def place_objects(room):
 				item_component = Item(use_function=cast_lightning)
 				item = Object(x, y, '#', 'scroll of lightning bolt', libtcod.light_yellow, always_visible=True, item=item_component)
 			
+			elif item_choice == 'sword':
+				#create a sword
+				equipment_component = Equipment(slot='right hand', power_bonus=3)
+				item = Object(x, y, '/', 'sword', libtcod.sky, equipment=equipment_component)
+				
+			elif item_choice == 'shield':
+				equipment_component = Equipment(slot='left hand', defense_bonus=2)
+				item = Object(x, y, '*', 'shield', libtcod.sky, equipment=equipment_component)
+				
 			objects.append(item)
 			item.send_to_back() #items appear below other objects
+			item.always_visible = True
 
 def render_bar(x, y, total_width, name, value, maximum, bar_color, back_color):
 	#render a bar. first calculate the width of the bar
@@ -974,6 +1077,13 @@ def new_game():
 	game_msgs = []
 	#welcoming message
 	message('Welcome stranger! Prepare to perish in the Tombes of the Ancient Kings.', libtcod.red)
+	
+	#initial equipment: a dagger
+	equipment_component = Equipment(slot='right hand', power_bonus=2)
+	obj = Object(0, 0, '-', 'dagger', libtcod.sky, equipment=equipment_component)
+	inventory.append(obj)
+	equipment_component.equip()
+	obj.always_visible = True
 
 def save_game():
 	#opens a new empty shelve (possibly overwriting an old one) to write the game data
