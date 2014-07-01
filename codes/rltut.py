@@ -37,7 +37,14 @@ CONFUSE_RANGE = 8
 FIREBALL_RADIUS = 3
 FIREBALL_DAMAGE = 25
 
-CONTROLS_TEXT = 'ALT+ENTER: FULLSCREEN \n'+'I: INVENTORY \n'+'G: PICK UP ITEM \n'+'D: DROP ITEM\n'+'COMMA: GO DOWN STAIRS \n'+'ARROW KEYS: MOVE'
+CONTROLS_TEXT = ('ALT+ENTER: FULLSCREEN \n'+
+'I: INVENTORY \n'+
+'G: PICK UP ITEM \n'+
+'D: DROP ITEM\n'+
+'COMMA: GO DOWN STAIRS \n'+
+'ARROW KEYS or NUMPAD: MOVE \n'+
+'WAIT: NUM 5')
+				
 #####################################################
 #color_dark_wall = libtcod.Color(0,0,100)
 #color_light_wall = libtcod.Color(130,110,50)
@@ -79,7 +86,19 @@ item_chances = {'potion': 70,
 				'scroll of lightning': 10, 
 				'scroll of confusion': 10}
 
+material_chances = {'wood': 30,
+					'stone': 30,
+					'iron': 23,
+					'steel':15}
+					
+wand_type_chances = {'lightning': 43,
+					'fireball': 45,
+					'confusion':58,
+					'more spells': 50}
 
+
+
+	
 #TILES OBJECT walls and floor and such
 class Tile:
 	#a tile of the map and its properties
@@ -318,7 +337,38 @@ class Equipment:
 		if not self.is_equipped: return
 		self.is_equipped = False
 		message('Removed ' + self.owner.name + ' from ' + self.slot + '.', libtcod.light_yellow)
+
+class BasicMonster:
+	#AI for a basic monster
+	def take_turn(self):
+		#a basic monster takes its turn, If you can see it, it can see you
+		monster = self.owner
+		if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
+			
+			#move towards the player if far away
+			if monster.distance_to(player) >=2:
+				monster.move_towards(player.x, player.y)
+				
+			#close enough to attack
+			elif player.fighter.hp > 0:
+				monster.fighter.attack(player)
+
+class ConfusedMonster:
+	#AI for a confused monster
+	def __init__(self, old_ai, num_turns=CONFUSE_NUM_TURNS):
+		self.old_ai = old_ai
+		self.num_turns = num_turns
 		
+	def take_turn(self):
+		if self.num_turns > 0: #still confused
+			#move in a random direction
+			self.owner.move(libtcod.random_get_int(0, -1, 1), libtcod.random_get_int(0, -1, 1))
+			self.num_turns -= 1
+			
+		else: #restore previous AI. this one is deleted because it's not referenced anymore
+			self.owner.ai = self.old_ai
+			message('The ' + self.owner.name + ' is no longer confused.', libtcod.red)
+				
 def menu(header, options, width):
 	if len(options) > 26: raise ValueError('Cannot have a menu with more than 26 options.')
 	
@@ -405,37 +455,6 @@ def monster_death(monster):
 	#set corpse to render first
 	monster.send_to_back()
 	
-class BasicMonster:
-	#AI for a basic monster
-	def take_turn(self):
-		#a basic monster takes its turn, If you can see it, it can see you
-		monster = self.owner
-		if libtcod.map_is_in_fov(fov_map, monster.x, monster.y):
-			
-			#move towards the player if far away
-			if monster.distance_to(player) >=2:
-				monster.move_towards(player.x, player.y)
-				
-			#close enough to attack
-			elif player.fighter.hp > 0:
-				monster.fighter.attack(player)
-
-class ConfusedMonster:
-	#AI for a confused monster
-	def __init__(self, old_ai, num_turns=CONFUSE_NUM_TURNS):
-		self.old_ai = old_ai
-		self.num_turns = num_turns
-		
-	def take_turn(self):
-		if self.num_turns > 0: #still confused
-			#move in a random direction
-			self.owner.move(libtcod.random_get_int(0, -1, 1), libtcod.random_get_int(0, -1, 1))
-			self.num_turns -= 1
-			
-		else: #restore previous AI. this one is deleted because it's not referenced anymore
-			self.owner.ai = self.old_ai
-			message('The ' + self.owner.name + ' is no longer confused.', libtcod.red)
-
 def closest_monster(max_range):
 	#find closest enemy within a max range that is in FOV
 	closest_enemy = None

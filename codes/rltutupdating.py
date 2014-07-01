@@ -524,7 +524,18 @@ def monster_death(monster):
 	monster.name = 'remains of ' + monster.name
 	#set corpse to render first
 	monster.send_to_back()
-	
+	if dice_roll():
+		item = place_random_weapon(monster.x, monster.y)
+		objects.append(item)
+
+def dice_roll():
+	dice = libtcod.random_get_int(0, 1, 100)
+	if dice <= 50:
+		message('It seems to have dropped some fat loots.', libtcod.green)
+		return True
+	else:
+		return
+		
 def closest_monster(max_range):
 	#find closest enemy within a max range that is in FOV
 	closest_enemy = None
