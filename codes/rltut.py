@@ -87,17 +87,78 @@ item_chances = {'potion': 70,
 				'scroll of confusion': 10}
 
 material_chances = {'wood': 30,
-					'stone': 30,
+					'stone':30,
 					'iron': 23,
-					'steel':15}
+					'steel': 15}
 					
-wand_type_chances = {'lightning': 43,
-					'fireball': 45,
+weapon_type_chances = {'sword':20,
+						'axe':20,
+						'dagger':20,
+						'staff':20}
+						
+wand_type_chances = {'lightning':43,
+					'fireball':45,
 					'confusion':58,
-					'more spells': 50}
+					'more spells':50}
+				
+				
+#IN PROGRESS
+def random_weapon_material():
+	global weapon_material
+	weapon_material = random_choice(material_chances)
+	
+	if weapon_material == 'wood':
+		return 'wood', 1
+	if weapon_material == 'stone':
+		return 'stone', 2
+	if weapon_material == 'iron':
+		return 'iron', 3
+	if weapon_material == 'steel':
+		return 'steel', 4
+	
+def random_weapon_type():
+	weapon_type = random_choice(weapon_type_chances)
+	
+	if weapon_type == 'sword':
+		return 'sword', 'right hand'
+	elif weapon_type == 'axe':
+		return 'axe', 'right hand'
+	elif weapon_type == 'wand':
+		#need more stuff here
+		return 'wand', 'right hand'
+	elif weapon_type == 'staff':
+		return 'staff', 'both hands'
+	elif weapon_type == 'bow':
+		return 'bow', 'both hands'
+	elif weapon_type == 'dagger':
+		return 'dagger', 'right hand'
 
-
-
+def place_random_weapon(x,y):
+	weapon_type, weapon_slot = random_weapon_type()
+	weapon_material, weapon_bonus = random_weapon_material()
+	
+	print (weapon_type +' '+ weapon_slot +' '+ weapon_material +' '+ str(weapon_bonus))
+	
+	if weapon_type == 'sword':
+		equipment_component = Equipment(slot=weapon_slot, power_bonus=weapon_bonus)
+		return Object(x,y, '/', (weapon_material+' sword'), libtcod.sky, equipment=equipment_component)
+	elif weapon_type == 'axe':
+		equipment_component = Equipment(slot=weapon_slot, power_bonus=weapon_bonus)
+		return Object(x,y, 'P', (weapon_material+' axe'), libtcod.sky, equipment=equipment_component)
+	elif weapon_type == 'staff':
+		equipment_component = Equipment(slot=weapon_slot, power_bonus=weapon_bonus)
+		return Object(x,y, '|', (weapon_material+' staff'), libtcod.sky, equipment=equipment_component)
+	elif weapon_type == 'dagger':
+		equipment_component = Equipment(slot=weapon_slot, power_bonus=weapon_bonus)
+		return Object(x,y, '-', (weapon_material+' dagger'), libtcod.sky, equipment=equipment_component)
+#	elif weapon_type == 'bow':
+#		break
+#	elif weapon_type == 'wand':
+#		break
+	
+	
+	
+	
 	
 #TILES OBJECT walls and floor and such
 class Tile:
@@ -324,7 +385,16 @@ class Equipment:
 			
 	def equip(self):
 		#if the slot is already being used, remove whatever is there first
+		
+		if self.slot == 'both hands':
+			old_equipment_right = get_equipped_in_slot('right hand')
+			old_equipment_left = get_equipped_in_slot('left hand')
+			if old_equipment_right is not None:
+				old_equipment_right.dequip()
+			if old_equipment_left is not None:
+				old_equipment_left.dequip()
 		old_equipment = get_equipped_in_slot(self.slot)
+		
 		if old_equipment is not None:
 			old_equipment.dequip()
 			
@@ -337,6 +407,9 @@ class Equipment:
 		if not self.is_equipped: return
 		self.is_equipped = False
 		message('Removed ' + self.owner.name + ' from ' + self.slot + '.', libtcod.light_yellow)
+		
+	def get_equipment_type(self):
+		return self.owner.name
 
 class BasicMonster:
 	#AI for a basic monster
@@ -454,7 +527,18 @@ def monster_death(monster):
 	monster.name = 'remains of ' + monster.name
 	#set corpse to render first
 	monster.send_to_back()
-	
+	if dice_roll():
+		item = place_random_weapon(monster.x, monster.y)
+		objects.append(item)
+
+def dice_roll():
+	dice = libtcod.random_get_int(0, 1, 100)
+	if dice <= 50:
+		message('It seems to have dropped some fat loots.', libtcod.green)
+		return True
+	else:
+		return
+		
 def closest_monster(max_range):
 	#find closest enemy within a max range that is in FOV
 	closest_enemy = None
@@ -495,7 +579,8 @@ def check_level_up():
 
 def get_equipped_in_slot(slot): #returns the equipment in a slot, or None if it's empty
 	for obj in inventory:
-		if obj.equipment and obj.equipment.slot == slot and obj.equipment.is_equipped:
+		if obj.equipment and (obj.equipment.slot == slot or obj.equipment.slot == 'both hands') and obj.equipment.is_equipped:
+			
 			return obj.equipment
 	return None
 
@@ -509,7 +594,8 @@ def get_all_equipped(obj): #returns a list of equipped items
 		return equipped_list
 	else:
 		return [] #other objects have no equipments
-		
+
+	
 def cast_heal():
 	#heal the player
 	if player.fighter.hp == player.fighter.max_hp:
@@ -800,14 +886,17 @@ def place_objects(room):
 				item = Object(x, y, '#', 'scroll of lightning bolt', libtcod.light_yellow, always_visible=True, item=item_component)
 			
 			elif item_choice == 'sword':
+			
+				item = place_random_weapon(x,y)
+				print 'placed a weapon'
 				#create a sword
-				equipment_component = Equipment(slot='right hand', power_bonus=3)
-				item = Object(x, y, '/', 'sword', libtcod.sky, equipment=equipment_component)
+#				equipment_component = Equipment(slot='right hand', power_bonus=3)
+#				item = Object(x, y, '/', 'sword', libtcod.sky, equipment=equipment_component)
 				
 			elif item_choice == 'shield':
 				equipment_component = Equipment(slot='left hand', defense_bonus=2)
 				item = Object(x, y, '*', 'shield', libtcod.sky, equipment=equipment_component)
-				
+			
 			objects.append(item)
 			item.send_to_back() #items appear below other objects
 			item.always_visible = True
@@ -1196,7 +1285,7 @@ def main_menu():
 		libtcod.console_print_ex(0, SCREEN_WIDTH/2, SCREEN_HEIGHT/2-4, libtcod.BKGND_NONE, libtcod.CENTER,
 				MAIN_TITLE)
 		libtcod.console_print_ex(0, SCREEN_WIDTH/2, SCREEN_HEIGHT-2, libtcod.BKGND_NONE, libtcod.CENTER,
-			'by pooface')
+			'by Austin McGee')
 		#print controls
 		libtcod.console_print_ex(0, 1, 1, libtcod.BKGND_NONE, libtcod.LEFT, CONTROLS_TEXT)
 		
